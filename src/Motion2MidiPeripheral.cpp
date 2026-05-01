@@ -1,19 +1,18 @@
 /*
- * Project myProject
- * Author: Your Name
+ * Project Motion2MidiPeripheral
+ * Author: Jacob Schjødt Worm
  * Date:
  * For comprehensive documentation and examples, please visit:
  * https://docs.particle.io/firmware/best-practices/firmware-template/
  */
 
 // Include Particle Device OS APIs
-#include "Particle.h"
-#include <math.h>
-#include "adxl343.h"
 #include "Ble.h"
+#include "Particle.h"
+#include "adxl343.h"
 #include "features.h"
 #include "random_forest_model1.h"
-
+#include <math.h>
 
 #define BUF_LENGTH 200
 #define NUM_SAMPLES 100
@@ -23,7 +22,6 @@
 
 // Forward declarations:
 void readAccelerometer();
-// void buttonHandler(system_event_t event, int data);
 
 // Let Device OS manage the connection to the Particle Cloud
 SYSTEM_MODE(AUTOMATIC);
@@ -82,23 +80,10 @@ void readAccelerometer() {
   newSample = true;
 }
 
-/*constexpr size_t TX_BUF_SIZE = 1024;
-char txBuf[TX_BUF_SIZE];
-size_t txLen = 0;*/
-
 // setup() runs once, when the device is first turned on
 void setup() {
   Particle.connect();
   initBle();
-
-  /*
-  // Register handler to handle clicking on the SETUP button
-  System.on(button_click, buttonHandler);
-
-  // Blue D7 LED indicates capture is running
-  pinMode(D7, OUTPUT);
-  digitalWrite(D7, LOW);
-  */
 
   // initialization
   Serial.begin(115200);
@@ -115,7 +100,7 @@ void loop() {
   if ((millis() - msPrev) > 100) { // Kør inferencing hver 100 milliSekunder
     microsStart = micros();
     msPrev = millis();
-    uint16_t writePosTemp = writePos;
+    uint16_t writePosTemp = writePos; // Gemmer writeposition så sampling ikke ændrer den
     for (int i = 0; i < 3; i++) { // Fylder buffer med 100 samples
       for (int j = 0; j < NUM_SAMPLES; j++) {
         int readPos =
@@ -141,30 +126,15 @@ void loop() {
     features_to_array(&feats, features_array);
     apply_scaler(features_array, features_int16);
     microsDuration = micros() - microsStart;
-    //Log.info("Feature beregning og inferencing duration, miikrosekunder: %d", microsDuration);
-    //const int32_t out = random_forest_model_predict(features_int16, N_FEATURES);
-    float probabs[8]={0};
-    const int ret = random_forest_model_predict_proba(features_int16, N_FEATURES,probabs,N_CLASSES);
+    // Log.info("Feature beregning og inferencing duration, miikrosekunder: %d",
+    // microsDuration);
+    float probabs[8] = {0};
+    const int ret = random_forest_model_predict_proba(
+        features_int16, N_FEATURES, probabs, N_CLASSES);
     if (ret < 0) {
       Log.info("ERROR");
-    } 
-    
-    /* Udvælgelse, version 1:
-    int out = 4;
-    // Implementerer Hysteresis: For skift af status skal sandsynlighed være over...
-    
-    for(int i=0; i<N_CLASSES; i++){
-      if (probabs[i]>HYST_THRESHOLD_STAY){
-        out = i;
-      }
-    }  
-    if (out != prev_out && out != 4){
-      if(probabs[out]<HYST_THRESHOLD_CHANGE){
-        out = prev_out;
-      }
     }
-    prev_out = out;
-    */
+
     int out = prev_out;
     float bestProb = 0.0f;
     int bestClass = 4;
@@ -195,54 +165,37 @@ void loop() {
 
     prev_out = out;
 
-
-    const char *gesture="Other";
+    const char *gesture = "Other";
     switch (out) {
-      case 0:
-        gesture = "OneDown";
-        break;
-      case 1:
-        gesture = "OneUp";
-        break;
-      case 2:
-        gesture = "TwoDown";
-        break;
-      case 3:
-        gesture = "TwoUp";
-        break;
-      case 4:
-        gesture = "Other";
-        break;
-      case 5:
-        gesture = "SlowDown";
-        break;
-      case 6:
-        gesture = "SlowUp";
-        break;
-      case 7:
-        gesture = "Vibrato";
-        break;
-      }
+    case 0:
+      gesture = "OneDown";
+      break;
+    case 1:
+      gesture = "OneUp";
+      break;
+    case 2:
+      gesture = "TwoDown";
+      break;
+    case 3:
+      gesture = "TwoUp";
+      break;
+    case 4:
+      gesture = "Other";
+      break;
+    case 5:
+      gesture = "SlowDown";
+      break;
+    case 6:
+      gesture = "SlowUp";
+      break;
+    case 7:
+      gesture = "Vibrato";
+      break;
+    }
     Log.info("Output class: %s", gesture);
     // Send gesture via Bluetooth:
-    
+
     uint8_t payload = (uint8_t)out;
-    sendGestureBluetooth(payload);    
-  }    
-}
-
-/*
-// button handler for the SETUP button, used to toggle recording on and off
-void buttonHandler(system_event_t event, int data) {
-  switch (state) {
-  case STATE_WAITING:
-    if (WiFi.ready()) {
-      state = STATE_CONNECT;
-    }
-    break;
-
-  case STATE_RUNNING:
-    state = STATE_FINISH;
-    break;
+    sendGestureBluetooth(payload);
   }
-} */
+}
