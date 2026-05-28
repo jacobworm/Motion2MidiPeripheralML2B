@@ -14,7 +14,12 @@ int initBle(void) {
   BLE.on();
   BLE.setDeviceName(BLE_DEVICE_NAME);
   BLE.addCharacteristic(gesturesCharacteristic);
-  BLE.advertise();
+  
+  // bestem hvad der bliver advertise'ed. Der scannes efter UUID så den skal sendes med.
+  BleAdvertisingData advData;
+  advData.appendServiceUUID(SERVICE_UUID);
+  advData.appendLocalName(BLE_DEVICE_NAME);
+  BLE.advertise(&advData);
   return 0;
 }
 void sendGestureBluetooth(uint8_t payload) {
