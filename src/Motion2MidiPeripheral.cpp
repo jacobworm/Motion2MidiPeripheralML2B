@@ -11,14 +11,14 @@
 #include "Particle.h"
 #include "adxl343.h"
 #include "features.h"
-#include "random_forest_model1.h"
+#include "random_forest_model2B.h"
 #include <math.h>
 
 #define BUF_LENGTH 200
 #define NUM_SAMPLES 100
 #define N_CLASSES 8
 #define HYST_THRESHOLD_STAY 0.5
-#define HYST_THRESHOLD_CHANGE 0.6
+#define HYST_THRESHOLD_CHANGE 0.5
 
 // Forward declarations:
 void readAccelerometer();
@@ -100,22 +100,16 @@ void loop() {
   if ((millis() - msPrev) > 100) { // Kør inferencing hver 100 milliSekunder
     microsStart = micros();
     msPrev = millis();
-    uint16_t writePosTemp = writePos; // Gemmer writeposition så sampling ikke ændrer den
-    for (int i = 0; i < 3; i++) { // Fylder buffer med 100 samples
-      for (int j = 0; j < NUM_SAMPLES; j++) {
-        int readPos =
-            (writePosTemp + BUF_LENGTH - NUM_SAMPLES + j) % BUF_LENGTH;
-        samples[i][j] = accelCircBuf[i][readPos];
-      }
-    }
-    int n = NUM_SAMPLES;
-    for (int i = 0; i < n; i++) {
-      sampleBuffer.x[i] = samples[0][i];
-      sampleBuffer.y[i] = samples[1][i];
-      sampleBuffer.z[i] = samples[2][i];
-      sampleBuffer.mag[i] =
-          sqrt(samples[0][i] * samples[0][i] + samples[1][i] * samples[1][i] +
-               samples[2][i] * samples[2][i]);
+    uint16_t writePosTemp = writePos; // Gemmer writeposition så en ny sampling fra accel ikke ændrer den
+    for (int j = 0; j < NUM_SAMPLES; ++j) {
+      int readPos = (writePosTemp + BUF_LENGTH - NUM_SAMPLES + j) % BUF_LENGTH;
+      sampleBuffer.x[j] = accelCircBuf[0][readPos];
+      sampleBuffer.y[j] = accelCircBuf[1][readPos];
+      sampleBuffer.z[j] = accelCircBuf[2][readPos];
+      sampleBuffer.mag[j] = sqrt(
+          sampleBuffer.x[j]*sampleBuffer.x[j] +
+          sampleBuffer.y[j]*sampleBuffer.y[j] +
+          sampleBuffer.z[j]*sampleBuffer.z[j]);
     }
     Features_t feats;
     microsStart = micros();
@@ -125,20 +119,17 @@ void loop() {
     float features_array[N_FEATURES] = {0};
     features_to_array(&feats, features_array);
     apply_scaler(features_array, features_int16);
-    microsDuration = micros() - microsStart;
-    // Log.info("Feature beregning og inferencing duration, miikrosekunder: %d",
-    // microsDuration);
+    
     float probabs[8] = {0};
     const int ret = random_forest_model_predict_proba(
         features_int16, N_FEATURES, probabs, N_CLASSES);
     if (ret < 0) {
       Log.info("ERROR");
     }
-
     int out = prev_out;
     float bestProb = 0.0f;
     int bestClass = 4;
-
+    static int prevBest = 4, prevprevBest = 4;
     // Find den mest sandsynlige klasse
     for (int i = 0; i < N_CLASSES; i++) {
       if (probabs[i] > bestProb) {
@@ -154,7 +145,13 @@ void loop() {
       // Hvis vi skifter klasse, kræv højere sandsynlighed
       if (bestClass != prev_out) {
         if (bestProb >= HYST_THRESHOLD_CHANGE) {
-          out = bestClass;
+          // Krav: nye klasse accepteres kun hvis den var 'best' i mindst
+          // én af de to forrige inferencer (dvs. 2 ud af seneste 3)
+          if (bestClass == prevBest || bestClass == prevprevBest) {
+            out = bestClass;
+          } else {
+            out = prev_out;
+          }
         } else {
           out = prev_out;
         }
@@ -162,7 +159,8 @@ void loop() {
         out = bestClass;
       }
     }
-
+    prevprevBest = prevBest;
+    prevBest = bestClass;
     prev_out = out;
 
     const char *gesture = "Other";
@@ -194,8 +192,11 @@ void loop() {
     }
     Log.info("Output class: %s", gesture);
     // Send gesture via Bluetooth:
-
+    microsDuration = micros() - microsStart;
+    Log.info("Feature beregning og inferencing duration, miikrosekunder: %d",microsDuration);
+    
     uint8_t payload = (uint8_t)out;
     sendGestureBluetooth(payload);
+    
   }
 }
